@@ -1,0 +1,40 @@
+version: 0.2
+
+phases:
+  install:
+  commands:
+    - apt-get update
+    - apt install jq
+    - aws ecs describe-task-definition --task-definition main_task | \ jq '.taskDefinition' > taskdef.json #writes task definition.JSON to be used by ecs/ecr with jq
+    - envsubst < appspec_template.yaml > appspec.yaml
+
+  pre_build:
+    commands:
+      - echo logging in to AWS ECR...
+      - $(aws ecr get-login --region eu-west-2 --no-include-email)
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+
+  build:
+    commands:
+      - echo build Docker image on `date`
+      - docker build -t aspnetapp:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+      - cd nginx
+      - docker build -t nginxapp:latest .
+      - docker tag $NGINX_URI:latest $NGINX_URI:$IMAGE_TAG
+
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker images...
+      - docker push $REPOSITORY_URI:latest
+      - echo Pushing app image...
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Pushing nginx image...
+      - docker push $NGINX_URI:latest
+      - docker push $NGINX_URI:$IMAGE_TAG
+
+  artifacts:
+    files:
+      - appspec.yaml
+      - taskdef.json
